@@ -17,6 +17,7 @@ class JengaBlockDetector:
         self.real_block_length = real_block_length
         
         # Define HSV color ranges for each Jenga block color
+        # Tightened ranges to reduce false positives
         self.color_ranges = {
             'red': [(np.array([0, 100, 100]), np.array([10, 255, 255])),
                     (np.array([160, 100, 100]), np.array([180, 255, 255]))],
@@ -89,26 +90,47 @@ class JengaBlockDetector:
             for contour in contours:
                 area = cv2.contourArea(contour)
                 
-                # Filter noise
-                if area < 1000: # Increased threshold slightly for cleaner results
+                # Filter by area - Jenga blocks should have reasonable size
+                if area < 1500:  # Minimum area to filter noise
+                    continue
+                if area > 3000:  # Maximum area to filter large objects
                     continue
                 
                 rect_info = self.find_aligned_rectangle(contour)
+                width = rect_info['width']
+                height = rect_info['height']
                 
-                # Calculate distance using the LONGEST side (stored in rect_info['width'])
+                # Filter by aspect ratio - Jenga blocks are elongated (7.5 x 2.5 cm)
+                # So we expect width/height ratio to be roughly between 1.5 and 5
+                if width > 0:
+                    aspect_ratio = width / height
+                    if aspect_ratio < 1.2 or aspect_ratio > 6:  # Too square or too elongated
+                        continue
+                
+                # Filter by solidity - block should be mostly filled
+                hull = cv2.convexHull(contour)
+                hull_area = cv2.contourArea(hull)
+                if hull_area > 0:
+                    solidity = area / hull_area
+                    if solidity < 0.6:  # Less than 60% filled is likely not a block
+                        continue
+                
+                # Calculate distance using the LONGEST side
                 dist = 0.0
                 if self.focal_length is not None:
-                    dist = self.calculate_distance(rect_info['width'])
+                    dist = self.calculate_distance(width)
                 
                 block_data = {
                     'color': color_name,
                     'center': rect_info['center'],
-                    'width': rect_info['width'],
-                    'height': rect_info['height'],
+                    'width': width,
+                    'height': height,
                     'angle': rect_info['angle'],
                     'box': rect_info['box'],
                     'area': area,
-                    'distance': dist
+                    'distance': dist,
+                    'aspect_ratio': aspect_ratio,
+                    'solidity': solidity
                 }
                 
                 detected_blocks.append(block_data)

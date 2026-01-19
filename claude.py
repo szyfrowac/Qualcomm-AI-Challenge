@@ -3,14 +3,14 @@ import numpy as np
 import pyrealsense2 as rs
 
 class JengaBlockDetector:
-    def __init__(self, focal_length=None, real_block_length=7.5, camera_intrinsics=None):
+    def __init__(self, focal_length=None, real_block_length=7, camera_intrinsics=None):
         """
         Initialize the Jenga block detector
         
         Args:
             focal_length: Camera focal length in pixels
             real_block_length: The length of the Jenga block's LONGEST side in cm.
-                               Standard Jenga is 1.5 x 2.5 x 7.5 cm.
+                               Standard Jenga is 1.5 x 2.5 x 7 cm.
                                We use the longest side for better distance stability.
             camera_intrinsics: Dict with keys 'fx', 'fy', 'ppx', 'ppy' for converting to 3D coords
         """
@@ -137,8 +137,6 @@ class JengaBlockDetector:
                 # Filter by area - Jenga blocks should have reasonable size
                 if area < 1500:  # Minimum area to filter noise
                     continue
-                if area > 3000:  # Maximum area to filter large objects
-                    continue
                 
                 rect_info = self.find_aligned_rectangle(contour)
                 width = rect_info['width']
@@ -215,7 +213,7 @@ class JengaBlockDetector:
 # --- MAIN EXECUTION ---
 if __name__ == "__main__":
     # Standard Jenga block length is 7.5 cm (Longest side)
-    detector = JengaBlockDetector(real_block_length=7.5)
+    detector = JengaBlockDetector(real_block_length=7)
     
     print("Starting RealSense Stream...")
     pipeline = rs.pipeline()

@@ -3,7 +3,7 @@ import numpy as np
 import pyrealsense2 as rs
 
 class JengaBlockDetector:
-    def __init__(self, focal_length=None, real_block_length=7.5):
+    def __init__(self, focal_length=None, real_block_length=7.5, camera_intrinsics=None):
         """
         Initialize the Jenga block detector
         
@@ -12,9 +12,18 @@ class JengaBlockDetector:
             real_block_length: The length of the Jenga block's LONGEST side in cm.
                                Standard Jenga is 1.5 x 2.5 x 7.5 cm.
                                We use the longest side for better distance stability.
+            camera_intrinsics: Dict with keys 'fx', 'fy', 'ppx', 'ppy' for converting to 3D coords
         """
         self.focal_length = focal_length
         self.real_block_length = real_block_length
+        
+        # Camera intrinsics for 3D coordinate conversion
+        self.camera_intrinsics = camera_intrinsics or {
+            'fx': focal_length,
+            'fy': focal_length,
+            'ppx': 320,  # Default principal point x (half of 640)
+            'ppy': 240   # Default principal point y (half of 480)
+        }
         
         # Define HSV color ranges for each Jenga block color
         # Tightened ranges to reduce false positives
@@ -78,6 +87,41 @@ class JengaBlockDetector:
         distance = (self.real_block_length * self.focal_length) / pixel_width
         return distance
     
+    def pixel_to_3d_world(self, pixel_x, pixel_y, distance_cm):
+        """
+        Convert 2D image coordinates to 3D world coordinates with camera as origin.
+        
+        Args:
+            pixel_x: X coordinate in image (column)
+            pixel_y: Y coordinate in image (row)
+            distance_cm: Distance from camera (depth) in cm
+            
+        Returns:
+            Dict with 'x', 'y', 'z' in cm, where camera is at origin (0, 0, 0)
+            Z-axis points forward (away from camera)
+            X-axis points right
+            Y-axis points down
+        """
+        fx = self.camera_intrinsics['fx']
+        fy = self.camera_intrinsics['fy']
+        ppx = self.camera_intrinsics['ppx']
+        ppy = self.camera_intrinsics['ppy']
+        
+        # Using pinhole camera model
+        # X = (u - ppx) * Z / fx
+        # Y = (v - ppy) * Z / fy
+        # Z = distance
+        
+        x = (pixel_x - ppx) * distance_cm / fx
+        y = (pixel_y - ppy) * distance_cm / fy
+        z = distance_cm
+        
+        return {
+            'x': x,
+            'y': y,
+            'z': z
+        }
+    
     def detect_blocks(self, image):
         """Detect all Jenga blocks in the image"""
         hsv = cv2.cvtColor(image, cv2.COLOR_BGR2HSV)
@@ -120,6 +164,10 @@ class JengaBlockDetector:
                 if self.focal_length is not None:
                     dist = self.calculate_distance(width)
                 
+                # Convert 2D image center to 3D world coordinates
+                center_pixel = rect_info['center']
+                world_coords = self.pixel_to_3d_world(center_pixel[0], center_pixel[1], dist)
+                
                 block_data = {
                     'color': color_name,
                     'center': rect_info['center'],
@@ -130,7 +178,8 @@ class JengaBlockDetector:
                     'area': area,
                     'distance': dist,
                     'aspect_ratio': aspect_ratio,
-                    'solidity': solidity
+                    'solidity': solidity,
+                    'world_coords': world_coords  # 3D coordinates with camera as origin
                 }
                 
                 detected_blocks.append(block_data)
@@ -185,7 +234,19 @@ if __name__ == "__main__":
         
         # fx is the focal length in pixels for the width axis
         detector.focal_length = intrinsics.fx
-        print(f"Camera Initialized. Focal Length: {detector.focal_length:.2f} px")
+        
+        # Store camera intrinsics for 3D coordinate conversion
+        detector.camera_intrinsics = {
+            'fx': intrinsics.fx,
+            'fy': intrinsics.fy,
+            'ppx': intrinsics.ppx,
+            'ppy': intrinsics.ppy
+        }
+        
+        print(f"Camera Initialized.")
+        print(f"  Focal Length: fx={intrinsics.fx:.2f}px, fy={intrinsics.fy:.2f}px")
+        print(f"  Principal Point: ({intrinsics.ppx:.2f}, {intrinsics.ppy:.2f})")
+        print(f"  Resolution: {intrinsics.width} x {intrinsics.height}")
         
         while True:
             frames = pipeline.wait_for_frames()
@@ -211,7 +272,8 @@ if __name__ == "__main__":
             if frame_count % 60 == 0 and blocks:
                 print(f"--- Frame {frame_count} ---")
                 for b in blocks:
-                    print(f"[{b['color']}] Dist: {b['distance']:.1f}cm | Angle: {b['angle']:.1f}")
+                    coords = b['world_coords']
+                    print(f"[{b['color']}] Distance: {b['distance']:.1f}cm | Angle: {b['angle']:.1f}° | 3D Coords: X={coords['x']:.1f}cm, Y={coords['y']:.1f}cm, Z={coords['z']:.1f}cm")
 
             if cv2.waitKey(1) & 0xFF == ord('q'):
                 break

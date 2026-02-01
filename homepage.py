@@ -6,7 +6,10 @@ import os
 import requests
 import json
 import math
-from typing import Optional, Dict, Any
+import cv2
+import numpy as np
+import pyrealsense2 as rs
+from typing import Optional, Dict, Any, List, Tuple
 
 # ==========================================
 # ROARM CONTROLLER CLASS
@@ -154,11 +157,150 @@ class RobotMock:
             print(f"[Robot] Failed to connect to real arm: {e}. Using mock mode.")
             self.arm = None
             self.use_real_arm = False
+
+
+# ==========================================
+# INTERACTIVE CALIBRATION CLASS (for Gradio)
+# ==========================================
+class GradioCalibrator:
+    """
+    Interactive calibrator that works with Gradio UI instead of terminal input.
+    """
+    def __init__(
+        self,
+        marker_ids: Tuple[int, int, int, int] = (0, 1, 2, 3),
+        aruco_dict_name: int = cv2.aruco.DICT_4X4_50,
+        save_path: str = None,
+    ) -> None:
+        self.marker_ids = marker_ids
+        if save_path is None:
+            self.save_path = os.path.join(os.path.dirname(__file__), "calibration", "calibration_matrix.npy")
+        else:
+            self.save_path = save_path
+        
+        # Initialize ArUco detector
+        aruco_dict = cv2.aruco.getPredefinedDictionary(aruco_dict_name)
+        parameters = cv2.aruco.DetectorParameters()
+        self.detector = cv2.aruco.ArucoDetector(aruco_dict, parameters)
+        
+        # Robot IP for getting positions
+        self.ip_addr = '192.168.4.1'
+    
+    def get_current_robot_position(self) -> Tuple[float, float]:
+        """Get current robot position from the arm."""
+        command = {"T": 105}
+        json_command = json.dumps(command)
+        url = f"http://{self.ip_addr}/js?json={json_command}"
+        
+        try:
+            response = requests.get(url, timeout=2)
+            response.raise_for_status()
+            data = json.loads(response.text)
+            x = float(data.get('x', 0))
+            y = float(data.get('y', 0))
+            return x, y
+        except requests.exceptions.RequestException as err:
+            print(f"Connection Error: {err}")
+            return 0.0, 0.0
+        except json.JSONDecodeError:
+            print("Data Error: Could not decode JSON response.")
+            return 0.0, 0.0
+    
+    def get_realsense_frame(self) -> np.ndarray:
+        """Captures a single frame from the RealSense camera."""
+        pipeline = rs.pipeline()
+        config = rs.config()
+        config.enable_stream(rs.stream.color, 640, 480, rs.format.bgr8, 30)
+        pipeline.start(config)
+
+        # Warmup to allow auto-exposure to settle
+        for _ in range(10):
+            pipeline.wait_for_frames()
+
+        try:
+            frames = pipeline.wait_for_frames()
+            color_frame = frames.get_color_frame()
+            if not color_frame:
+                raise RuntimeError("No color frame received from RealSense")
+            image = np.asanyarray(color_frame.get_data())
+        finally:
+            pipeline.stop()
+
+        return image
+    
+    def compute_homography(self, image: np.ndarray, robot_coords: np.ndarray) -> Optional[np.ndarray]:
+        """Compute homography matrix from image and robot coordinates."""
+        gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
+        corners, ids, _rejected = self.detector.detectMarkers(gray)
+
+        if ids is None or len(ids) < 4:
+            return None, "Error: Less than 4 markers detected in camera view."
+
+        ids = ids.flatten()
+        image_points: List[List[float]] = []
+        log_messages = []
+
+        try:
+            for target_id in self.marker_ids:
+                if target_id not in ids:
+                    return None, f"Error: Marker ID {target_id} missing from view."
+                
+                index = list(ids).index(target_id)
+                marker_corners = corners[index][0]
+                
+                center_x = float(np.mean(marker_corners[:, 0]))
+                center_y = float(np.mean(marker_corners[:, 1]))
+                
+                image_points.append([center_x, center_y])
+                log_messages.append(f"   -> Camera saw ID {target_id} at pixel ({center_x:.1f}, {center_y:.1f})")
+                
+        except ValueError as e:
+            return None, f"Error processing markers: {e}"
+
+        image_points_arr = np.array(image_points, dtype="float32")
+        matrix = cv2.getPerspectiveTransform(image_points_arr, robot_coords)
+        
+        return matrix, "\n".join(log_messages)
+    
+    def save_calibration(self, matrix: np.ndarray) -> bool:
+        """Save the calibration matrix to file."""
+        try:
+            # Ensure directory exists
+            os.makedirs(os.path.dirname(self.save_path), exist_ok=True)
+            np.save(self.save_path, matrix)
+            return True
+        except Exception as e:
+            print(f"Error saving calibration: {e}")
+            return False
+
+
+# Global calibrator instance
+_gradio_calibrator = None
+
+def get_calibrator():
+    global _gradio_calibrator
+    if _gradio_calibrator is None:
+        _gradio_calibrator = GradioCalibrator()
+    return _gradio_calibrator
+
+
+class RobotMockTeleop:
+    """Robot object for teleop controls using RoArmController."""
+    def __init__(self, ip_address: str = "192.168.4.1"):
+        try:
+            self.arm = RoArmController(ip_address=ip_address)
+            self.arm.set_torque(True)
+            self.use_real_arm = True
+            print("[Robot] Real arm connected")
+        except Exception as e:
+            print(f"[Robot] Failed to connect to real arm: {e}. Using mock mode.")
+            self.arm = None
+            self.use_real_arm = False
     
     def teleop_move(self, direction: str) -> str:
         """Move robot based on direction."""
         if not self.use_real_arm or self.arm is None:
-            return f"🤖 Moving {direction} (Mock)"
+            return f"Moving {direction} (Mock)"
         
         try:
             # Define movement vectors for each direction
@@ -188,17 +330,17 @@ class RobotMock:
                     
                     # Move arm
                     self.arm.move_cartesian(new_x, new_y, new_z, current_t, wait=False)
-                    return f"🤖 Moving {direction}"
+                    return f"Moving {direction}"
             
-            return f"❌ Invalid direction: {direction}"
+            return f"Invalid direction: {direction}"
         except Exception as e:
             print(f"[Robot] Movement error: {e}")
-            return f"❌ Movement failed: {e}"
+            return f"Movement failed: {e}"
     
     def drop_block(self) -> str:
         """Drop block by controlling gripper."""
         if not self.use_real_arm or self.arm is None:
-            return "📦 Block dropped (Mock)"
+            return "Block dropped (Mock)"
         
         try:
             # Joint 4 is the gripper
@@ -207,10 +349,10 @@ class RobotMock:
             time.sleep(0.5)
             # Close gripper (low angle)
             self.arm.set_joint(joint_id=4, angle=1.57, wait=True)
-            return "📦 Block dropped"
+            return "Block dropped"
         except Exception as e:
             print(f"[Robot] Drop error: {e}")
-            return f"❌ Drop failed: {e}"
+            return f"Drop failed: {e}"
 
 def system_logic():
     """
@@ -219,10 +361,17 @@ def system_logic():
     
     # Define default state: Not calibrated, Not disabled
     # We use a dictionary to allow mutable state passing
-    default_state = {"calibrated": False, "disabled": False}
+    default_state = {
+        "calibrated": False, 
+        "disabled": False,
+        # Calibration state
+        "calib_active": False,
+        "calib_step": 0,  # 0-3 for markers, 4 for camera capture, 5 for done
+        "calib_points": [],  # List of (x, y) tuples
+    }
     
     # Initialize robot - will try real arm first, fall back to mock
-    robot = RobotMock(ip_address="192.168.4.1")
+    robot = RobotMockTeleop(ip_address="192.168.4.1")
     
     # Map keyboard keys to robot commands
     teleop_commands = {
@@ -254,7 +403,7 @@ def system_logic():
         if state["disabled"]:
             # If system is disabled, prevent chat and return warning in messages format
             history.append({"role": "user", "content": user_message})
-            history.append({"role": "assistant", "content": "⛔ SYSTEM DISABLED. MESSAGE REJECTED."})
+            history.append({"role": "assistant", "content": "SYSTEM DISABLED. MESSAGE REJECTED."})
             return history, "System is offline.", ""
 
         if not user_message.strip():
@@ -272,12 +421,242 @@ def system_logic():
 
         return history, inference_data, ""
 
+    # ==========================================
+    # INTERACTIVE CALIBRATION FUNCTIONS
+    # ==========================================
+    
+    def start_calibration(state):
+        """Start the interactive calibration process."""
+        if state["disabled"]:
+            return (
+                "System Disabled. Cannot start calibration.",
+                state,
+                gr.update(visible=False),  # calib_panel
+                gr.update(visible=True),   # calibrate_btn
+            )
+        
+        # Initialize calibration state
+        state["calib_active"] = True
+        state["calib_step"] = 0
+        state["calib_points"] = []
+        
+        prompt = """
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+   INTERACTIVE CALIBRATION - PHASE 1
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+STEP 1/4: Move robot tip to CENTER of Marker 0
+
+Position the robot arm so its tip is exactly 
+   at the center of ArUco Marker ID 0.
+
+When ready, click "Confirm Position" below.
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+"""
+        return (
+            prompt,
+            state,
+            gr.update(visible=True),   # calib_panel
+            gr.update(visible=False),  # calibrate_btn
+        )
+    
+    def confirm_marker_position(state):
+        """Confirm the current marker position and move to next step."""
+        if not state["calib_active"]:
+            return state, "Calibration not active.", gr.update(), gr.update()
+        
+        calibrator = get_calibrator()
+        step = state["calib_step"]
+        marker_ids = (0, 1, 2, 3)
+        
+        # Get current robot position
+        x, y = calibrator.get_current_robot_position()
+        state["calib_points"].append([x, y])
+        
+        recorded_msg = f"Recorded Marker {marker_ids[step]}: X={x:.2f}, Y={y:.2f}\n\n"
+        
+        # Move to next step
+        state["calib_step"] = step + 1
+        
+        if state["calib_step"] < 4:
+            # More markers to record
+            next_marker = marker_ids[state["calib_step"]]
+            prompt = f"""
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+   INTERACTIVE CALIBRATION - PHASE 1
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+{recorded_msg}
+STEP {state["calib_step"] + 1}/4: Move robot tip to CENTER of Marker {next_marker}
+
+Position the robot arm so its tip is exactly 
+   at the center of ArUco Marker ID {next_marker}.
+
+When ready, click "Confirm Position" below.
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+Recorded positions so far:
+"""
+            for i, (px, py) in enumerate(state["calib_points"]):
+                prompt += f"   • Marker {i}: ({px:.2f}, {py:.2f})\n"
+            
+            return (
+                state,
+                prompt,
+                gr.update(visible=True, value="✅ Confirm Position"),  # confirm_btn
+                gr.update(visible=False),  # capture_btn
+            )
+        else:
+            # All markers recorded, move to camera capture phase
+            prompt = f"""
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+   INTERACTIVE CALIBRATION - PHASE 2
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+{recorded_msg}
+All 4 marker positions recorded successfully!
+
+Recorded positions:
+"""
+            for i, (px, py) in enumerate(state["calib_points"]):
+                prompt += f"   • Marker {i}: ({px:.2f}, {py:.2f})\n"
+            
+            prompt += """
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+IMPORTANT: Before capturing the camera image:
+
+   1. Move the robot arm OUT of the camera's view
+   2. Ensure all 4 ArUco markers are clearly visible
+   3. Make sure lighting is adequate
+
+When ready, click "Capture & Calibrate" below.
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+"""
+            return (
+                state,
+                prompt,
+                gr.update(visible=False),  # confirm_btn
+                gr.update(visible=True),   # capture_btn
+            )
+    
+    def capture_and_calibrate(state):
+        """Capture camera image and compute calibration matrix."""
+        if not state["calib_active"] or len(state["calib_points"]) < 4:
+            return (
+                state,
+                "Error: Not enough calibration points recorded.",
+                gr.update(visible=False),  # calib_panel
+                gr.update(visible=True),   # calibrate_btn
+            )
+        
+        calibrator = get_calibrator()
+        robot_coords = np.array(state["calib_points"], dtype="float32")
+        
+        prompt = """
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+   CAPTURING IMAGE...
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+"""
+        
+        try:
+            # Capture image from RealSense
+            image = calibrator.get_realsense_frame()
+            prompt += "\nImage captured successfully!\n\n"
+            prompt += "Computing homography matrix...\n\n"
+            
+            # Compute homography
+            matrix, log_msg = calibrator.compute_homography(image, robot_coords)
+            
+            if matrix is None:
+                # Calibration failed
+                state["calib_active"] = False
+                state["calib_step"] = 0
+                state["calib_points"] = []
+                
+                prompt += f"""
+CALIBRATION FAILED
+
+{log_msg}
+
+Please ensure:
+• All 4 ArUco markers (ID 0-3) are visible
+• Markers are not obstructed
+• Lighting is adequate
+• Camera is properly connected
+
+Click "Send Calibration Signal" to try again.
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+"""
+                return (
+                    state,
+                    prompt,
+                    gr.update(visible=False),  # calib_panel
+                    gr.update(visible=True),   # calibrate_btn
+                )
+            
+            # Save calibration matrix
+            if calibrator.save_calibration(matrix):
+                state["calibrated"] = True
+                state["calib_active"] = False
+                state["calib_step"] = 0
+                state["calib_points"] = []
+                
+                timestamp = time.strftime("%H:%M:%S")
+                prompt += f"""
+{log_msg}
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+   CALIBRATION COMPLETE!
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+Homography matrix computed and saved!
+
+File: calibration/calibration_matrix.npy
+Time: {timestamp}
+
+The system is now calibrated and ready for use.
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+"""
+                return (
+                    state,
+                    prompt,
+                    gr.update(visible=False),  # calib_panel
+                    gr.update(visible=False, interactive=False),  # calibrate_btn (disabled after success)
+                )
+            else:
+                prompt += "\nFailed to save calibration matrix."
+                
+        except Exception as e:
+            prompt += f"\nError during calibration: {str(e)}"
+            state["calib_active"] = False
+        
+        return (
+            state,
+            prompt,
+            gr.update(visible=False),  # calib_panel
+            gr.update(visible=True),   # calibrate_btn
+        )
+    
+    def cancel_calibration(state):
+        """Cancel the ongoing calibration process."""
+        state["calib_active"] = False
+        state["calib_step"] = 0
+        state["calib_points"] = []
+        
+        return (
+            state,
+            "Calibration cancelled by user.",
+            gr.update(visible=False),  # calib_panel
+            gr.update(visible=True),   # calibrate_btn
+        )
+
     def run_calibration(state):
         """
         Runs the external `arm_calibrate.py` script and waits for it to finish.
         """
         if state["disabled"]:
-            return "❌ System Disabled. Calibration Failed.", state
+            return "System Disabled. Calibration Failed.", state
         try:
             script_path = os.path.join(os.path.dirname(__file__), "calibration", "arm_calibrate.py")
             # Run the calibration script using the same Python executable and wait for completion
@@ -286,13 +665,13 @@ def system_logic():
             timestamp = time.strftime("%H:%M:%S")
             stdout = result.stdout.strip()
             if stdout:
-                return f"✅ System Calibrated at {timestamp}\n\n{stdout}", state
-            return f"✅ System Calibrated at {timestamp}", state
+                return f"System Calibrated at {timestamp}\n\n{stdout}", state
+            return f"System Calibrated at {timestamp}", state
         except subprocess.CalledProcessError as e:
             err = e.stderr.strip() if e.stderr else str(e)
-            return f"❌ Calibration script failed: {err}", state
+            return f"Calibration script failed: {err}", state
         except Exception as e:
-            return f"❌ Calibration failed: {e}", state
+            return f"Calibration failed: {e}", state
 
     def check_calibration_file_exists():
         """
@@ -316,7 +695,7 @@ def system_logic():
             # 4. Calibrate Button (interactive=False)
             # 5. Signal Button (interactive=False)
             return (
-                "⚠ SYSTEM SHUTDOWN SIGNAL RECEIVED. ALL OPERATIONS CEASED.", 
+                "SYSTEM SHUTDOWN SIGNAL RECEIVED. ALL OPERATIONS CEASED.", 
                 state,
                 gr.update(interactive=False, placeholder="System Disabled"),
                 gr.update(interactive=False, value="Disabled"),
@@ -331,15 +710,15 @@ def system_logic():
         """
         if key_or_direction in teleop_commands:
             result = teleop_commands[key_or_direction]()
-            return f"✅ {result}"
-        return "❌ Invalid command"
+            return f"{result}"
+        return "Invalid command"
 
     # --- GUI Layout ---
     with gr.Blocks(title="Control Interface") as demo:
         # State variable to hold system status across interactions within a session
         system_state = gr.State(default_state)
         
-        gr.Markdown("# 🤖 System Control Interface")
+        gr.Markdown("# System Control Interface")
         
         with gr.Row():
             with gr.Column(scale=2):
@@ -362,17 +741,25 @@ def system_logic():
                 file_exists = os.path.isfile(calib_file)
                 if file_exists:
                     print(f"[Calibration] Detected calibration file: {calib_file}")
-                    calibrate_btn = gr.Button("📡 Send Calibration Signal", variant="primary", interactive=False)
+                    calibrate_btn = gr.Button("Send Calibration Signal", variant="primary", interactive=False)
                 else:
                     print(f"[Calibration] No calibration file found; enabling calibration button")
-                    calibrate_btn = gr.Button("📡 Send Calibration Signal", variant="primary", interactive=True)
+                    calibrate_btn = gr.Button("Send Calibration Signal", variant="primary", interactive=True)
                 
-                # Feature 3: Inference Display
+                # Feature 3: Inference Display (also used for calibration prompts)
                 inference_output = gr.TextArea(
                     label="Inference / Processing Output", 
                     interactive=False,
-                    lines=5
+                    lines=12
                 )
+                
+                # Interactive Calibration Panel (hidden by default)
+                with gr.Group(visible=False) as calib_panel:
+                    gr.Markdown("### Calibration Controls")
+                    with gr.Row():
+                        confirm_btn = gr.Button("Confirm Position", variant="primary", size="lg")
+                        capture_btn = gr.Button("Capture & Calibrate", variant="primary", visible=False, size="lg")
+                    cancel_btn = gr.Button("Cancel Calibration", variant="stop", size="sm")
 
                 gr.Markdown("---")
                 gr.Markdown("### Admin Controls")
@@ -385,21 +772,21 @@ def system_logic():
                 signal_btn = gr.Button("Transmit Signal", variant="stop")
 
         # --- Robot Teleop Control Panel ---
-        gr.Markdown("### 🎮 Robot Teleop Controls")
+        gr.Markdown("### Robot Teleop Controls")
         gr.Markdown("**Keyboard:** W/A/S/D (Move), U (Up), J (Down), O (Drop)")
         
         with gr.Row():
-            teleop_forward = gr.Button("⬆️ W", size="lg")
+            teleop_forward = gr.Button("W", size="lg")
             teleop_output = gr.Textbox(label="Command Output", interactive=False, lines=2)
         
         with gr.Row():
-            teleop_left = gr.Button("⬅️ A", size="lg")
-            teleop_down = gr.Button("⬇️ S", size="lg")
-            teleop_right = gr.Button("➡️ D", size="lg")
+            teleop_left = gr.Button("A", size="lg")
+            teleop_down = gr.Button("S", size="lg")
+            teleop_right = gr.Button("D", size="lg")
         
         with gr.Row():
-            teleop_up = gr.Button("⬆️ U", size="lg")
-            teleop_drop = gr.Button("📦 O", size="lg")
+            teleop_up = gr.Button("U", size="lg")
+            teleop_drop = gr.Button("O", size="lg")
 
         # --- Event Wiring ---
 
@@ -410,11 +797,32 @@ def system_logic():
             outputs=[chatbot, inference_output, msg_input]
         )
 
-        # 2. Manual Calibration
+        # 2. Interactive Calibration - Start
         calibrate_btn.click(
-            run_calibration,
+            start_calibration,
             inputs=[system_state],
-            outputs=[inference_output, system_state]
+            outputs=[inference_output, system_state, calib_panel, calibrate_btn]
+        )
+        
+        # 2a. Calibration - Confirm marker position
+        confirm_btn.click(
+            confirm_marker_position,
+            inputs=[system_state],
+            outputs=[system_state, inference_output, confirm_btn, capture_btn]
+        )
+        
+        # 2b. Calibration - Capture and compute
+        capture_btn.click(
+            capture_and_calibrate,
+            inputs=[system_state],
+            outputs=[system_state, inference_output, calib_panel, calibrate_btn]
+        )
+        
+        # 2c. Calibration - Cancel
+        cancel_btn.click(
+            cancel_calibration,
+            inputs=[system_state],
+            outputs=[system_state, inference_output, calib_panel, calibrate_btn]
         )
 
         # 4. Signal Handling (Disable functionality)

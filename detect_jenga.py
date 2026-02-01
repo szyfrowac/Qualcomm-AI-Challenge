@@ -389,22 +389,23 @@ class JengaBlockDetector:
             cv2.arrowedLine(result, center, end_pt, (0, 0, 0), 10, tipLength=0.35)
             cv2.arrowedLine(result, center, end_pt, (255, 255, 0), 5, tipLength=0.35)
             
-            # Text information
+            # Text information: coordinates, color, and orientation
             text_lines = []
-            
-            # Add new frame coordinates if available
+
             if block['new_frame_coords'] is not None:
-                new_coords = block['new_frame_coords']
-                text_lines.append(f"New Frame: ({new_coords['x']:.1f}, {new_coords['y']:.1f}, {new_coords['z']:.1f})")
-            
-            text_lines.extend([
-                f"{block['color'].upper()}",
-                f"Dist: {block['distance']:.1f} cm"
-            ])
-            
-            y_offset = -30 if block['new_frame_coords'] is not None else -20
+                coords = block['new_frame_coords']
+                text_lines.append(f"({coords['x']:.1f},{coords['y']:.1f},{coords['z']:.1f})")
+                text_lines.append(f"{block['color'].upper()}")
+                text_lines.append(f"{block['angle']:.0f} DEG")
+            else:
+                # Fallback if calibration/new frame is not available
+                text_lines.append("(N/A,N/A,N/A)")
+                text_lines.append(f"{block['color'].upper()}")
+                text_lines.append(f"{block['angle']:.0f} DEG")
+
+            y_offset = -30
             for line in text_lines:
-                cv2.putText(result, line, (center[0] - 60, center[1] + y_offset),
+                cv2.putText(result, line, (center[0] - 80, center[1] + y_offset),
                            cv2.FONT_HERSHEY_SIMPLEX, 0.5, (255, 255, 255), 2)
                 y_offset += 15
         

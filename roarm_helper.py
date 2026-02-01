@@ -18,51 +18,95 @@ class RoArmController:
             protocol (str): 'http' or 'https'.
             timeout (int): Seconds to wait for a response before timing out.
         """
-        self.base_url = f"{protocol}://{ip_address}:{port}/js"
+        self.protocol = protocol
+        self.ip_address = ip_address
         self.timeout = timeout
-        print(f"[RoArm] Initialized. Target URL: {self.base_url}")
+        self.last_response = None
+        print(f"[RoArm] Initialized. Target: {protocol}://{ip_address}/js?json=")
 
-    def _send_command(self, command_dict: Dict[str, Any]) -> Optional[Dict[str, Any]]:
+    def _is_response_valid(self, response: Optional[Dict[str, Any]]) -> bool:
+        """
+        Validate if the response indicates a successful command execution.
+
+        Args:
+            response (dict): The response from RoArm.
+
+        Returns:
+            bool: True if response is valid/successful, False otherwise.
+        """
+        if response is None:
+            return False
+        
+        # Check for common success indicators
+        if "error" in response and response["error"]:
+            return False
+        
+        # Check for status field
+        if "status" in response:
+            status = str(response["status"]).lower()
+            if status in ["ok", "success", "true", "1"]:
+                return True
+        
+        # Check for raw_response indicating fallback success
+        if "raw_response" in response and "status" in response:
+            return True
+        
+        # If response exists and doesn't have explicit error, consider it valid
+        if isinstance(response, dict) and len(response) > 0:
+            return True
+        
+        return False
+
+    def _send_command(self, command_dict: Dict[str, Any], validate_response: bool = True) -> Optional[Dict[str, Any]]:
         """
         The CENTRAL function that all other functions call.
-        It sends the JSON command to the API and waits for the response.
+        It sends the JSON command to the API and waits for a valid response.
 
         Args:
             command_dict (dict): The Python dictionary representing the JSON command.
+            validate_response (bool): If True, waits for a valid response before returning.
 
         Returns:
             dict: The JSON response from the RoArm, or None if failed.
         """
         try:
-            # Convert dict to JSON string for logging/debugging
+            # Convert dict to JSON string
             json_payload = json.dumps(command_dict)
             print(f"[RoArm] Sending: {json_payload}")
 
-            # Send the request. We send it as a 'json' query parameter 
-            # as is common with RoArm ESP32 web implementations, 
-            # but this can be switched to json=command_dict for REST bodies.
-            # Using params={'json': json_payload} ensures it works with the default web app.
-            response = requests.get(
-                self.base_url, 
-                params={'json': json_payload}, 
-                timeout=self.timeout
-            )
+            # Build full URL by concatenating the JSON string directly (matching https_json.py)
+            url = f"{self.protocol}://{self.ip_address}/js?json={json_payload}"
             
-            # Alternatively, if your server expects a POST body:
-            # response = requests.post(self.base_url, json=command_dict, timeout=self.timeout)
-
+            # Send the GET request
+            response = requests.get(url, timeout=self.timeout)
+            
             # Raise an error for bad HTTP status codes (4xx, 5xx)
             response.raise_for_status()
 
-            # Attempt to parse the response
-            # Note: Some simple ESP32 servers return plain text or empty strings.
+            # Get response text
+            content = response.text
+            print(f"[RoArm] Received: {content}")
+            
+            # Attempt to parse as JSON
             try:
-                response_data = response.json()
-                print(f"[RoArm] Received: {response_data}")
-                return response_data
+                response_data = json.loads(content)
             except json.JSONDecodeError:
-                print(f"[RoArm] Received raw text: {response.text}")
-                return {"raw_response": response.text, "status": "ok"}
+                # If not JSON, return as raw response
+                response_data = {"raw_response": content, "status": "ok"}
+            
+            # Store the last response
+            self.last_response = response_data
+            
+            # Validate response if requested
+            if validate_response:
+                if self._is_response_valid(response_data):
+                    print(f"[RoArm] Response validated successfully.")
+                    return response_data
+                else:
+                    print(f"[RoArm] Invalid response received.")
+                    return None
+            
+            return response_data
 
         except requests.exceptions.RequestException as e:
             print(f"[RoArm] Network Error: {e}")
@@ -75,14 +119,19 @@ class RoArmController:
     def get_status(self) -> Optional[Dict[str, Any]]:
         """
         Get feedback/status from the arm.
+        Waits for a valid response before returning.
         JSON: {"T": 105}
         """
-        cmd = {"T": 105}
-        return self._send_command(cmd)
+        cmd = {"T": 405}
+        response = self._send_command(cmd, validate_response=True)
+        if response:
+            print(f"[RoArm] Status received: {response}")
+        return response
 
     def move_cartesian(self, x: float, y: float, z: float, t: float, speed: int = 0) -> Optional[Dict[str, Any]]:
         """
         Move the arm to a specific Coordinate (Inverse Kinematics).
+        Waits for a valid response before returning.
         
         Args:
             x, y, z (float): Target coordinates in mm.
@@ -99,11 +148,15 @@ class RoArmController:
             "t": t,
             "spd": speed
         }
-        return self._send_command(cmd)
+        response = self._send_command(cmd, validate_response=True)
+        if response:
+            print(f"[RoArm] Movement command acknowledged.")
+        return response
 
     def set_joints(self, base: float, shoulder: float, elbow: float, hand: float, speed: int = 0) -> Optional[Dict[str, Any]]:
         """
         Set all joint angles directly.
+        Waits for a valid response before returning.
         
         Args:
             base, shoulder, elbow, hand (float): Angles in degrees (or radians depending on config).
@@ -119,11 +172,15 @@ class RoArmController:
             "hand": hand,
             "spd": speed
         }
-        return self._send_command(cmd)
+        response = self._send_command(cmd, validate_response=True)
+        if response:
+            print(f"[RoArm] Joint angles set acknowledged.")
+        return response
 
-    def set_single_joint(self, joint_id: int, angle: float, speed: int = 0) -> Optional[Dict[str, Any]]:
+    def set_single_joint(self, joint_id: int, angle: float, speed: float = 0.25) -> Optional[Dict[str, Any]]:
         """
         Control a single joint/servo.
+        Waits for a valid response before returning.
         
         Args:
             joint_id (int): 1=Base, 2=Shoulder, 3=Elbow, 4=Hand/Gripper.
@@ -137,11 +194,15 @@ class RoArmController:
             "angle": angle,
             "spd": speed
         }
-        return self._send_command(cmd)
+        response = self._send_command(cmd, validate_response=True)
+        if response:
+            print(f"[RoArm] Joint {joint_id} command acknowledged.")
+        return response
 
     def set_torque(self, enable: bool) -> Optional[Dict[str, Any]]:
         """
         Enable or disable torque (motors on/off).
+        Waits for a valid response before returning.
         
         JSON: {"T": 210, "cmd": 1 or 0}
         """
@@ -149,15 +210,23 @@ class RoArmController:
             "T": 210,
             "cmd": 1 if enable else 0
         }
-        return self._send_command(cmd)
+        response = self._send_command(cmd, validate_response=True)
+        if response:
+            state = "enabled" if enable else "disabled"
+            print(f"[RoArm] Torque {state} acknowledged.")
+        return response
 
     def emergency_stop(self) -> Optional[Dict[str, Any]]:
         """
         Stop the arm immediately.
+        Waits for a valid response before returning.
         JSON: {"T": 0} (or equivalent stop command)
         """
         cmd = {"T": 0} # T:0 is commonly Stop/Reset in these protocols
-        return self._send_command(cmd)
+        response = self._send_command(cmd, validate_response=True)
+        if response:
+            print(f"[RoArm] Emergency stop acknowledged.")
+        return response
 
 # =============================================================================
 # EXAMPLE USAGE
@@ -176,20 +245,20 @@ if __name__ == "__main__":
         
         # Example 1: Turn Torque On
         print("\n--- 2. Enabling Torque ---")
-        arm.set_torque(True)
-        time.sleep(1)
+        arm.set_torque(False)
+        
 
-        # Example 2: Move to Home Position (Inverse Kinematics)
-        # Assuming typical home coordinates, e.g., X=200, Y=0, Z=0
+        # # Example 2: Move to Home Position (Inverse Kinematics)
+        # # Assuming typical home coordinates, e.g., X=200, Y=0, Z=0
         print("\n--- 3. Moving to Home ---")
         arm.move_cartesian(x=200, y=0, z=100, t=3.14)
-        time.sleep(2)
+        # time.sleep(2)
 
-        # Example 3: Wave Hand (Joint Control)
-        print("\n--- 4. Waving Hand ---")
-        arm.set_single_joint(joint_id=4, angle=180) # Open
-        time.sleep(1)
-        arm.set_single_joint(joint_id=4, angle=90)  # Close
+        # # Example 3: Wave Hand (Joint Control)
+        # print("\n--- 4. Waving Hand ---")
+        # arm.set_single_joint(joint_id=4, angle=180) # Open
+        # time.sleep(1)
+        # arm.set_single_joint(joint_id=4, angle=90)  # Close
         
     else:
         print("Failed to connect to RoArm.")

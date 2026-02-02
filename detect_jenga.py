@@ -451,7 +451,7 @@ if __name__ == "__main__":
         print(f"  Resolution: {intrinsics.width} x {intrinsics.height}")
         
         # Load calibration matrix for coordinate transformation
-        detector.load_calibration_matrix("calibration_matrix.npy")
+        detector.load_calibration_matrix("calibration/calibration_matrix.npy")
         
         while True:
             frames = pipeline.wait_for_frames()

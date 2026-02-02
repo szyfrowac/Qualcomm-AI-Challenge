@@ -11,7 +11,7 @@ and `message` is a short status string.
 
 from typing import Tuple
 
-_VALID_ACTIONS = {"pick", "drop"}
+_VALID_ACTIONS = {"pick", "drop", "place"}
 
 
 def _normalize_state(s: str) -> str:
@@ -50,6 +50,15 @@ def drop() -> str:
 	return "dropped"
 
 
+def place() -> str:
+	"""Stub place action.
+
+	Replace or monkey-patch this with the real robot place implementation.
+	"""
+	# perform place action here
+	return "placed"
+
+
 def fsm_controller(action_name: str, current_state: str) -> Tuple[str, str]:
 	"""Execute `pick` or `drop` depending on `current_state`.
 
@@ -86,6 +95,13 @@ def fsm_controller(action_name: str, current_state: str) -> Tuple[str, str]:
 		else:
 			return state, "no-op: no block to drop"
 
+	if action == "place":
+		if state == "have_block":
+			result = place()
+			return "doesnot_have_block", f"place: {result}"
+		else:
+			return state, "no-op: no block to place"
+
 
 if __name__ == "__main__":
 	# tiny manual test/demo
@@ -93,4 +109,6 @@ if __name__ == "__main__":
 	print(fsm_controller("pick", "have_block"))
 	print(fsm_controller("drop", "have_block"))
 	print(fsm_controller("drop", "does not have block"))
+	print(fsm_controller("place", "have_block"))
+	print(fsm_controller("place", "does not have block"))
 

@@ -12,6 +12,9 @@ import time
 import importlib.util
 from typing import Dict, Iterable, List, Optional, Tuple
 
+TABLE_HEIGHT = -120
+BLOCK_HEIGHT = 25
+
 def _load_roarm_controller_class():
     """Dynamically loads RoArmController from ../roarm_helper.py."""
     here = os.path.dirname(__file__)
@@ -43,8 +46,8 @@ def pickup(targets: Dict[str, List[Iterable[float]]],
            roarm_ip: str = "192.168.4.1",
            open_angle: float = 1.57,
            close_angle: float = 3.14,
-           approach_z_default: float = 150.0,
-           grasp_z_default: float = 50.0,
+           approach_z_default: float = -110.0,
+           grasp_z_default: float = -120.0,
            home_coords: Tuple[float, float, float] = (200.0, 0.0, 150.0)) -> Tuple[bool, str]:
     """Perform a pickup sequence and return home.
 
@@ -92,7 +95,7 @@ def pickup(targets: Dict[str, List[Iterable[float]]],
 
     # Calculate Heights
     approach_z = (z + 10.0) if (z is not None) else approach_z_default
-    grasp_z = (z + 5.0) if (z is not None) else grasp_z_default
+    grasp_z = (z - BLOCK_HEIGHT/2) if (z is not None) else grasp_z_default
 
     # --- ACTION SEQUENCE ---
 
@@ -130,13 +133,13 @@ def pickup(targets: Dict[str, List[Iterable[float]]],
     except Exception as e:
         return False, f"Failed to close gripper: {e}"
 
-    time.sleep(1) # Allow slightly more time for secure Jenga grip
+    time.sleep(1.5) # Allow slightly more time for secure Jenga grip
 
     # Step 5: Vertical Safety Lift
     # We lift straight up first to avoid knocking over other blocks
     try:
         arm.move_cartesian(
-            x=x, y=y, z=approach_z, 
+            x=x, y=y, z=grasp_z, 
             t=close_angle, # KEEP gripper closed
             speed=0.3, wait=True
         )

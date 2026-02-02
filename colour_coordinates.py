@@ -225,7 +225,7 @@ class ColourCoordinates:
             color = block.get('color') or 'unknown'
 
             # Prefer new_frame_coords (calibrated robot frame), fall back to world_coords
-            coords = block.get('new_frame_coords') or block.get('world_coords')
+            coords = block.get('intersection_new_frame_coords') or block.get('intersection_world_coords')
 
             if coords is None:
                 continue

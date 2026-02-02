@@ -57,7 +57,7 @@ def print_detected_blocks(coords: dict) -> None:
 
 
 def execute_and_log(controller: ActionController, action: str, 
-                    targets: dict = None, color: str = None) -> bool:
+                    targets: dict = None, color: str = None, detector = ColourCoordinates()) -> bool:
     """Execute an action and log the result.
     
     Returns:
@@ -67,7 +67,7 @@ def execute_and_log(controller: ActionController, action: str,
     if color:
         print(f" (color={color})", end="")
     print()
-    
+
     success, msg = controller.execute_action(action, targets=targets, color=color)
     
     status = "SUCCESS" if success else "FAILED"
@@ -134,36 +134,36 @@ def main():
     # Action 2: Try drop without holding anything (should fail - FSM rejection)
     print_separator("ACTION 2: DROP without holding block")
     execute_and_log(controller, "drop")
-    # coords = refresh_blocks(detector)
+    coords = refresh_blocks(detector)
     
     # Action 3: Pick first available color
     available_colors = list(coords.keys())
     if available_colors:
         print_separator(f"ACTION 3: PICK {available_colors[0]}")
-        execute_and_log(controller, "pick", targets=coords, color=available_colors[0])
-        # coords = refresh_blocks(detector)
+        execute_and_log(controller, "pick", targets=coords, color=available_colors[0], detector = detector)
+        coords = refresh_blocks(detector)
     
     # Action 4: Try to pick again while holding (should fail - FSM rejection)
     available_colors = list(coords.keys())
     if available_colors:
         print_separator(f"ACTION 4: PICK {available_colors[0]} while holding")
-        execute_and_log(controller, "pick", targets=coords, color=available_colors[0])
+        execute_and_log(controller, "pick", targets=coords, color=available_colors[0], detector = detector)
         # coords = refresh_blocks(detector)
     
     # Action 5: Place the held block (should succeed if holding)
     print_separator("ACTION 5: PLACE held block")
     execute_and_log(controller, "place")
-    # coords = refresh_blocks(detector)
+    coords = refresh_blocks(detector)
     
     # Action 6: Pick another color if available
     available_colors = list(coords.keys())
     if len(available_colors) > 1:
         print_separator(f"ACTION 6: PICK {available_colors[1]}")
-        execute_and_log(controller, "pick", targets=coords, color=available_colors[1])
+        execute_and_log(controller, "pick", targets=coords, color=available_colors[1], detector = detector)
         # coords = refresh_blocks(detector)
     elif available_colors:
         print_separator(f"ACTION 6: PICK {available_colors[0]}")
-        execute_and_log(controller, "pick", targets=coords, color=available_colors[0])
+        execute_and_log(controller, "pick", targets=coords, color=available_colors[0], detector = detector)
         # coords = refresh_blocks(detector)
     
     # Action 7: Drop the held block (should succeed if holding)
@@ -175,11 +175,11 @@ def main():
     available_colors = list(coords.keys())
     if len(available_colors) > 2:
         print_separator(f"ACTION 8: PICK {available_colors[2]}")
-        execute_and_log(controller, "pick", targets=coords, color=available_colors[2])
+        execute_and_log(controller, "pick", targets=coords, color=available_colors[2], detector = detector)
         # coords = refresh_blocks(detector)
     elif available_colors:
         print_separator(f"ACTION 8: PICK {available_colors[0]}")
-        execute_and_log(controller, "pick", targets=coords, color=available_colors[0])
+        execute_and_log(controller, "pick", targets=coords, color=available_colors[0], detector = detector)
         # coords = refresh_blocks(detector)
     
     # Action 9: Try place while holding (should succeed)
@@ -190,13 +190,13 @@ def main():
     # Action 10: Try drop after place (should fail - no longer holding)
     print_separator("ACTION 10: DROP after PLACE (not holding)")
     execute_and_log(controller, "drop")
-    # coords =  refresh_blocks(detector)
+    coords =  refresh_blocks(detector)
     
     # Action 11: Pick first available color again
     available_colors = list(coords.keys())
     if available_colors:
         print_separator(f"ACTION 11: PICK {available_colors[0]}")
-        execute_and_log(controller, "pick", targets=coords, color=available_colors[0])
+        execute_and_log(controller, "pick", targets=coords, color=available_colors[0], detector = detector)
         # coords =  refresh_blocks(detector)
     
     # Action 12: Drop to finish
@@ -209,7 +209,7 @@ def main():
     if available_colors:
         pick_color = available_colors[1] if len(available_colors) > 1 else available_colors[0]
         print_separator(f"ACTION 13: PICK {pick_color}")
-        execute_and_log(controller, "pick", targets=coords, color=pick_color)
+        execute_and_log(controller, "pick", targets=coords, color=pick_color, detector = detector)
         # coords =  refresh_blocks(detector)
     
     # Action 14: Place

@@ -218,6 +218,80 @@ class JengaBlockDetector:
         if (vy > eps) or (abs(vy) <= eps and vx < 0):
             return -vx, -vy
         return vx, vy
+    
+    def _perpendicular_anticlockwise(self, vx, vy):
+        """Return a vector perpendicular (90° anticlockwise) to the input vector.
+        
+        For a vector (vx, vy), rotating 90° anticlockwise gives (-vy, vx).
+        """
+        return vy, -vx
+    
+    def _line_segment_intersection(self, p1, p2, p3, p4):
+        """Find intersection point between two line segments.
+        
+        Args:
+            p1, p2: First line segment endpoints (tuples)
+            p3, p4: Second line segment endpoints (tuples)
+            
+        Returns:
+            Intersection point as tuple (x, y) or None if no intersection
+        """
+        x1, y1 = p1
+        x2, y2 = p2
+        x3, y3 = p3
+        x4, y4 = p4
+        
+        denom = (x1 - x2) * (y3 - y4) - (y1 - y2) * (x3 - x4)
+        
+        if abs(denom) < 1e-10:
+            return None  # Lines are parallel
+        
+        t = ((x1 - x3) * (y3 - y4) - (y1 - y3) * (x3 - x4)) / denom
+        u = -((x1 - x2) * (y1 - y3) - (y1 - y2) * (x1 - x3)) / denom
+        
+        # Check if intersection is within both line segments
+        if 0 <= t <= 1 and 0 <= u <= 1:
+            x = x1 + t * (x2 - x1)
+            y = y1 + t * (y2 - y1)
+            return (x, y)
+        
+        return None
+    
+    def _find_bbox_intersection(self, center, direction_vx, direction_vy, box_points):
+        """Find where a ray from center intersects the bounding box.
+        
+        Args:
+            center: Starting point (x, y)
+            direction_vx, direction_vy: Direction vector (unit vector)
+            box_points: 4 corner points of the bounding box
+            
+        Returns:
+            Intersection point (x, y) or None
+        """
+        cx, cy = center
+        
+        # Create a long ray from center in the given direction
+        ray_length = 1000  # Large enough to ensure it crosses the box
+        ray_end = (cx + direction_vx * ray_length, cy + direction_vy * ray_length)
+        
+        # Check intersection with each of the 4 edges of the box
+        closest_intersection = None
+        min_distance = float('inf')
+        
+        for i in range(4):
+            p1 = tuple(box_points[i])
+            p2 = tuple(box_points[(i + 1) % 4])
+            
+            intersection = self._line_segment_intersection(center, ray_end, p1, p2)
+            
+            if intersection is not None:
+                # Calculate distance from center to intersection
+                dist = np.sqrt((intersection[0] - cx)**2 + (intersection[1] - cy)**2)
+                if dist < min_distance:
+                    min_distance = dist
+                    closest_intersection = intersection
+        
+        return closest_intersection
 
     def _split_rect_if_merged(self, rect_info):
         """Split a (potentially merged) min-area rect into multiple block-sized rects.
@@ -348,6 +422,19 @@ class JengaBlockDetector:
                     
                     # Transform to new coordinate frame if calibration matrix is available
                     new_frame_coords = self.transform_to_new_frame(world_coords)
+                    
+                    # Calculate perpendicular intersection point
+                    vx, vy = self._major_axis_unit_vector(ri['angle'])
+                    vx, vy = self._direction_away_from_observer_bottom(vx, vy)
+                    perp_vx, perp_vy = self._perpendicular_anticlockwise(vx, vy)
+                    intersection = self._find_bbox_intersection(ri['center'], perp_vx, perp_vy, ri['box'])
+                    
+                    # Calculate 3D coordinates for intersection point
+                    intersection_world_coords = None
+                    intersection_new_frame_coords = None
+                    if intersection is not None:
+                        intersection_world_coords = self.pixel_to_3d_world(intersection[0], intersection[1], dist)
+                        intersection_new_frame_coords = self.transform_to_new_frame(intersection_world_coords)
 
                     block_data = {
                         'color': color_name,
@@ -361,7 +448,10 @@ class JengaBlockDetector:
                         'aspect_ratio': aspect_ratio,
                         'solidity': solidity,
                         'world_coords': world_coords,  # 3D coordinates with camera as origin
-                        'new_frame_coords': new_frame_coords  # 3D coordinates in new frame
+                        'new_frame_coords': new_frame_coords,  # 3D coordinates in new frame
+                        'intersection_point': intersection,  # 2D pixel coordinates of intersection
+                        'intersection_world_coords': intersection_world_coords,  # 3D camera frame coords
+                        'intersection_new_frame_coords': intersection_new_frame_coords  # 3D new frame coords
                     }
 
                     detected_blocks.append(block_data)
@@ -391,6 +481,16 @@ class JengaBlockDetector:
             # Make arrow bold/visible: draw a dark outline first, then bright arrow on top
             cv2.arrowedLine(result, center, end_pt, (0, 0, 0), 10, tipLength=0.35)
             cv2.arrowedLine(result, center, end_pt, (255, 255, 0), 5, tipLength=0.35)
+            
+            # Draw perpendicular vector (90° anticlockwise) - already calculated in detect_blocks
+            if block['intersection_point'] is not None:
+                intersection = block['intersection_point']
+                intersection_pt = (int(round(intersection[0])), int(round(intersection[1])))
+                # Draw perpendicular vector from center to intersection
+                cv2.arrowedLine(result, center, intersection_pt, (0, 0, 0), 8, tipLength=0.35)
+                cv2.arrowedLine(result, center, intersection_pt, (0, 255, 255), 4, tipLength=0.35)  # Cyan color
+                # Mark intersection point with a circle
+                cv2.circle(result, intersection_pt, 6, (255, 0, 255), -1)  # Magenta circle
             
             # Text information: coordinates, color, and orientation
             text_lines = []
@@ -479,10 +579,20 @@ if __name__ == "__main__":
                 for b in blocks:
                     coords = b['world_coords']
                     new_coords = b['new_frame_coords']
-                    coord_str = f"Camera: X={coords['x']:.1f}, Y={coords['y']:.1f}, Z={coords['z']:.1f}cm"
-                    if new_coords is not None:
-                        coord_str += f" | New Frame: X={new_coords['x']:.1f}, Y={new_coords['y']:.1f}, Z={new_coords['z']:.1f}cm"
-                    print(f"[{b['color']}] Distance: {b['distance']:.1f}cm | Angle: {b['angle']:.1f}° | {coord_str}")
+                    # coord_str = f"Camera: X={coords['x']:.1f}, Y={coords['y']:.1f}, Z={coords['z']:.1f}cm"
+                    # if new_coords is not None:
+                    #     coord_str += f" | New Frame: X={new_coords['x']:.1f}, Y={new_coords['y']:.1f}, Z={new_coords['z']:.1f}cm"
+                    # print(f"[{b['color']}] Distance: {b['distance']:.1f}cm | Angle: {b['angle']:.1f}° | {coord_str}")
+                    
+                    # Print intersection point coordinates
+                    if b['intersection_world_coords'] is not None:
+                        int_cam = b['intersection_world_coords']
+                        int_new = b['intersection_new_frame_coords']
+                        print(f"  Intersection -> Camera: X={int_cam['x']:.1f}, Y={int_cam['y']:.1f}, Z={int_cam['z']:.1f}cm", end="")
+                        if int_new is not None:
+                            print(f" | New Frame: X={int_new['x']:.1f}, Y={int_new['y']:.1f}, Z={int_new['z']:.1f}cm")
+                        else:
+                            print()
 
             if cv2.waitKey(1) & 0xFF == ord('q'):
                 break

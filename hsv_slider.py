@@ -2,19 +2,18 @@ import cv2
 import numpy as np
 import pyrealsense2 as rs
 
-class HSVColorSegmenter:
+class RGBColorSegmenter:
     def __init__(self):
-        """Initialize HSV Color Segmenter with adjustable thresholds"""
+        """Initialize RGB Color Segmenter with adjustable thresholds"""
         
-        # Default color ranges for Jenga blocks
+        # Default color ranges for Jenga blocks (in BGR format for OpenCV)
         self.color_ranges = {
-            'red': [(np.array([0, 100, 100]), np.array([5, 255, 255])),
-                    (np.array([160, 100, 100]), np.array([180, 255, 255]))],
-            'blue': [(np.array([70, 100, 100]), np.array([130, 255, 255]))],
-            'green': [(np.array([40, 50, 50]), np.array([80, 255, 255]))],
-            'yellow': [(np.array([21, 100, 100]), np.array([35, 255, 255]))],
-            'pink': [(np.array([140, 25, 150]), np.array([165, 255, 255]))],
-            'orange': [(np.array([6, 100, 100]), np.array([20, 255, 255]))]
+            'red': [(np.array([0, 0, 100]), np.array([100, 100, 255]))],
+            'blue': [(np.array([100, 0, 0]), np.array([255, 100, 100]))],
+            'green': [(np.array([0, 100, 0]), np.array([100, 255, 100]))],
+            'yellow': [(np.array([0, 150, 150]), np.array([100, 255, 255]))],
+            'pink': [(np.array([150, 100, 150]), np.array([255, 200, 255]))],
+            'orange': [(np.array([0, 100, 150]), np.array([100, 200, 255]))]
         }
         
         # Current color being adjusted
@@ -22,7 +21,7 @@ class HSVColorSegmenter:
         self.current_range_index = 0  # For colors with multiple ranges (like red)
         
         # Create window and trackbars
-        self.window_name = 'HSV Color Segmenter'
+        self.window_name = 'RGB Color Segmenter'
         cv2.namedWindow(self.window_name)
         
         # Initialize sliders with current color's values
@@ -33,26 +32,26 @@ class HSVColorSegmenter:
         self.config = rs.config()
         
     def _create_trackbars(self):
-        """Create trackbars for HSV adjustment"""
+        """Create trackbars for RGB adjustment"""
         current_range = self.color_ranges[self.current_color][self.current_range_index]
         lower = current_range[0]
         upper = current_range[1]
         
-        # Lower bounds
-        cv2.createTrackbar('H_min', self.window_name, int(lower[0]), 180, self._on_trackbar)
-        cv2.createTrackbar('S_min', self.window_name, int(lower[1]), 255, self._on_trackbar)
-        cv2.createTrackbar('V_min', self.window_name, int(lower[2]), 255, self._on_trackbar)
+        # Lower bounds (BGR format)
+        cv2.createTrackbar('B_min', self.window_name, int(lower[0]), 255, self._on_trackbar)
+        cv2.createTrackbar('G_min', self.window_name, int(lower[1]), 255, self._on_trackbar)
+        cv2.createTrackbar('R_min', self.window_name, int(lower[2]), 255, self._on_trackbar)
         
-        # Upper bounds
-        cv2.createTrackbar('H_max', self.window_name, int(upper[0]), 180, self._on_trackbar)
-        cv2.createTrackbar('S_max', self.window_name, int(upper[1]), 255, self._on_trackbar)
-        cv2.createTrackbar('V_max', self.window_name, int(upper[2]), 255, self._on_trackbar)
+        # Upper bounds (BGR format)
+        cv2.createTrackbar('B_max', self.window_name, int(upper[0]), 255, self._on_trackbar)
+        cv2.createTrackbar('G_max', self.window_name, int(upper[1]), 255, self._on_trackbar)
+        cv2.createTrackbar('R_max', self.window_name, int(upper[2]), 255, self._on_trackbar)
         
         # Color selector (0-5 for the 6 colors)
         cv2.createTrackbar('Color', self.window_name, 0, 5, self._on_color_change)
         
-        # Range selector for red (0 or 1)
-        cv2.createTrackbar('Range', self.window_name, 0, 1, self._on_range_change)
+        # Range selector (for future expansion)
+        cv2.createTrackbar('Range', self.window_name, 0, 0, self._on_range_change)
     
     def _on_trackbar(self, val):
         """Callback for trackbar changes"""
@@ -66,8 +65,8 @@ class HSVColorSegmenter:
         self._update_trackbars()
     
     def _on_range_change(self, val):
-        """Callback when range selection changes (for red which has 2 ranges)"""
-        if self.current_color == 'red' and val < len(self.color_ranges['red']):
+        """Callback when range selection changes"""
+        if val < len(self.color_ranges[self.current_color]):
             self.current_range_index = val
             self._update_trackbars()
     
@@ -77,33 +76,33 @@ class HSVColorSegmenter:
         lower = current_range[0]
         upper = current_range[1]
         
-        cv2.setTrackbarPos('H_min', self.window_name, int(lower[0]))
-        cv2.setTrackbarPos('S_min', self.window_name, int(lower[1]))
-        cv2.setTrackbarPos('V_min', self.window_name, int(lower[2]))
-        cv2.setTrackbarPos('H_max', self.window_name, int(upper[0]))
-        cv2.setTrackbarPos('S_max', self.window_name, int(upper[1]))
-        cv2.setTrackbarPos('V_max', self.window_name, int(upper[2]))
+        cv2.setTrackbarPos('B_min', self.window_name, int(lower[0]))
+        cv2.setTrackbarPos('G_min', self.window_name, int(lower[1]))
+        cv2.setTrackbarPos('R_min', self.window_name, int(lower[2]))
+        cv2.setTrackbarPos('B_max', self.window_name, int(upper[0]))
+        cv2.setTrackbarPos('G_max', self.window_name, int(upper[1]))
+        cv2.setTrackbarPos('R_max', self.window_name, int(upper[2]))
     
-    def _get_current_hsv_range(self):
-        """Get current HSV range from trackbars"""
-        h_min = cv2.getTrackbarPos('H_min', self.window_name)
-        s_min = cv2.getTrackbarPos('S_min', self.window_name)
-        v_min = cv2.getTrackbarPos('V_min', self.window_name)
-        h_max = cv2.getTrackbarPos('H_max', self.window_name)
-        s_max = cv2.getTrackbarPos('S_max', self.window_name)
-        v_max = cv2.getTrackbarPos('V_max', self.window_name)
+    def _get_current_rgb_range(self):
+        """Get current RGB range from trackbars"""
+        b_min = cv2.getTrackbarPos('B_min', self.window_name)
+        g_min = cv2.getTrackbarPos('G_min', self.window_name)
+        r_min = cv2.getTrackbarPos('R_min', self.window_name)
+        b_max = cv2.getTrackbarPos('B_max', self.window_name)
+        g_max = cv2.getTrackbarPos('G_max', self.window_name)
+        r_max = cv2.getTrackbarPos('R_max', self.window_name)
         
-        lower = np.array([h_min, s_min, v_min])
-        upper = np.array([h_max, s_max, v_max])
+        lower = np.array([b_min, g_min, r_min])
+        upper = np.array([b_max, g_max, r_max])
         
         return lower, upper
     
-    def segment_color(self, hsv_image, color_name):
+    def segment_color(self, bgr_image, color_name):
         """Create mask for a specific color using stored ranges"""
-        mask = np.zeros(hsv_image.shape[:2], dtype=np.uint8)
+        mask = np.zeros(bgr_image.shape[:2], dtype=np.uint8)
         
         for lower, upper in self.color_ranges[color_name]:
-            mask = cv2.bitwise_or(mask, cv2.inRange(hsv_image, lower, upper))
+            mask = cv2.bitwise_or(mask, cv2.inRange(bgr_image, lower, upper))
         
         # Clean up the mask (Morphological operations)
         kernel = np.ones((5, 5), np.uint8)
@@ -112,10 +111,10 @@ class HSVColorSegmenter:
         
         return mask
     
-    def segment_current_color_with_sliders(self, hsv_image):
+    def segment_current_color_with_sliders(self, bgr_image):
         """Segment using current slider values (for testing)"""
-        lower, upper = self._get_current_hsv_range()
-        mask = cv2.inRange(hsv_image, lower, upper)
+        lower, upper = self._get_current_rgb_range()
+        mask = cv2.inRange(bgr_image, lower, upper)
         
         # Clean up the mask (Morphological operations)
         kernel = np.ones((5, 5), np.uint8)
@@ -147,16 +146,16 @@ class HSVColorSegmenter:
             pass
     
     def run(self):
-        """Main loop for HSV segmentation with live camera feed"""
+        """Main loop for RGB segmentation with live camera feed"""
         if not self.start_camera():
             print("Failed to start camera. Exiting...")
             return
         
-        print("\n=== HSV Color Segmenter ===")
+        print("\n=== RGB Color Segmenter ===")
         print("Controls:")
         print("  - Use 'Color' slider to select color (0=Red, 1=Blue, 2=Green, 3=Yellow, 4=Pink, 5=Orange)")
-        print("  - Use 'Range' slider for Red to switch between ranges")
-        print("  - Adjust H_min/max, S_min/max, V_min/max sliders to tune the color range")
+        print("  - Use 'Range' slider to switch between ranges (if available)")
+        print("  - Adjust B_min/max, G_min/max, R_min/max sliders to tune the color range")
         print("  - Press 's' to save current range")
         print("  - Press 'p' to print all current ranges")
         print("  - Press 'a' to segment ALL colors at once")
@@ -177,12 +176,12 @@ class HSVColorSegmenter:
                 # Convert to numpy array
                 color_image = np.asanyarray(color_frame.get_data())
                 
-                # Convert to HSV
-                hsv_image = cv2.cvtColor(color_image, cv2.COLOR_BGR2HSV)
+                # Image is already in BGR format (OpenCV default)
+                bgr_image = color_image
                 
                 if show_all_colors:
                     # Segment all colors and show them
-                    combined_mask = np.zeros(hsv_image.shape[:2], dtype=np.uint8)
+                    combined_mask = np.zeros(bgr_image.shape[:2], dtype=np.uint8)
                     colored_output = np.zeros_like(color_image)
                     
                     # Define colors for visualization
@@ -196,7 +195,7 @@ class HSVColorSegmenter:
                     }
                     
                     for color_name in self.color_ranges.keys():
-                        mask = self.segment_color(hsv_image, color_name)
+                        mask = self.segment_color(bgr_image, color_name)
                         combined_mask = cv2.bitwise_or(combined_mask, mask)
                         
                         # Color the mask for visualization
@@ -212,7 +211,7 @@ class HSVColorSegmenter:
                     cv2.imshow(self.window_name, result)
                 else:
                     # Show current color segmentation with adjustable sliders
-                    mask = self.segment_current_color_with_sliders(hsv_image)
+                    mask = self.segment_current_color_with_sliders(bgr_image)
                     
                     # Create colored overlay
                     result = color_image.copy()
@@ -222,16 +221,16 @@ class HSVColorSegmenter:
                     result = cv2.addWeighted(color_image, 0.6, result, 0.4, 0)
                     
                     # Get current range for display
-                    lower, upper = self._get_current_hsv_range()
+                    lower, upper = self._get_current_rgb_range()
                     
                     # Add text overlay
                     text = f"Color: {self.current_color.upper()}"
-                    if self.current_color == 'red':
+                    if len(self.color_ranges[self.current_color]) > 1:
                         text += f" (Range {self.current_range_index})"
                     cv2.putText(result, text, (10, 30),
                               cv2.FONT_HERSHEY_SIMPLEX, 0.8, (255, 255, 255), 2)
                     
-                    range_text = f"H:[{lower[0]}-{upper[0]}] S:[{lower[1]}-{upper[1]}] V:[{lower[2]}-{upper[2]}]"
+                    range_text = f"B:[{lower[0]}-{upper[0]}] G:[{lower[1]}-{upper[1]}] R:[{lower[2]}-{upper[2]}]"
                     cv2.putText(result, range_text, (10, 60),
                               cv2.FONT_HERSHEY_SIMPLEX, 0.6, (255, 255, 255), 2)
                     
@@ -244,7 +243,7 @@ class HSVColorSegmenter:
                     break
                 elif key == ord('s'):
                     # Save current range
-                    lower, upper = self._get_current_hsv_range()
+                    lower, upper = self._get_current_rgb_range()
                     self.color_ranges[self.current_color][self.current_range_index] = (lower, upper)
                     print(f"\n✓ Saved range for {self.current_color} (index {self.current_range_index}):")
                     print(f"  Lower: {lower}")
@@ -282,7 +281,7 @@ class HSVColorSegmenter:
 
 
 def main():
-    segmenter = HSVColorSegmenter()
+    segmenter = RGBColorSegmenter()
     segmenter.run()
 
 

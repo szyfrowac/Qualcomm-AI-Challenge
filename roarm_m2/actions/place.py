@@ -51,15 +51,21 @@ def place(arm: Optional[object] = None,
         if arm is None:
             RoArmController = _load_roarm_controller_class()
             arm = RoArmController(ip_address=roarm_ip)
+            pos_dicitionary = arm.get_feedback()
+            current_x = pos_dicitionary['x']
+            current_y = pos_dicitionary['y']
 
         # Ensure motors are enabled
         arm.set_torque(True)
     except Exception as e:
         return False, f"Failed to initialize arm: {e}"
 
+    
+
+
     # Step 1: Move to middle position (approach height)
     try:
-        arm.move_cartesian(x=middle_x, y=middle_y, z=middle_z, t=place_t, speed=speed, wait=True)
+        arm.move_cartesian(x=current_x, y=current_y, z=middle_z, t=place_t, speed=speed, wait=True)
     except Exception as e:
         return False, f"Failed to move to middle position: {e}"
 
@@ -67,7 +73,7 @@ def place(arm: Optional[object] = None,
 
     # Step 2: Lower the arm to -120mm
     try:
-        arm.move_cartesian(x=middle_x, y=middle_y, z=place_z, t=place_t, speed=0.2, wait=True)
+        arm.move_cartesian(x=current_x, y=current_y, z=place_z, t=place_t, speed=0.2, wait=True)
     except Exception as e:
         return False, f"Failed to lower arm: {e}"
 

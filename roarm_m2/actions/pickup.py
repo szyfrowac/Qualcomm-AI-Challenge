@@ -163,7 +163,7 @@ def pickup(targets: Dict[str, List[Iterable[float]]],
 if __name__ == "__main__":
     # Test configuration
     # Example Jenga block coordinate
-    test_targets = {"jenga_block": [(219.8134478,173.1776273,-123.4276916)]} 
+    test_targets = {"jenga_block": [(200.0,0.0,-120.0)]} 
     
     print("Starting pickup test...")
     # Passing a specific home position (High and Center)

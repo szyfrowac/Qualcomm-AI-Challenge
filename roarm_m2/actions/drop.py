@@ -1,6 +1,6 @@
 """Drop action for RoArm-M2.
 
-Opens the gripper fully and moves the arm to a safe home position.
+Opens the gripper fully and moves the arm to a safe home position and closes the gripper.
 """
 
 import os
@@ -50,7 +50,7 @@ def drop(arm: Optional[object] = None,
     except Exception as e:
         return False, f"Failed to open gripper: {e}"
 
-    time.sleep(0.5)
+    time.sleep(1)
 
     # Step 2: Move to home position
     try:

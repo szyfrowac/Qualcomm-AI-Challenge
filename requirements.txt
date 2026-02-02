@@ -1,0 +1,9 @@
+model2vec
+scikit-learn
+gradio
+pickle
+numpy
+re
+requests
+opencv-python
+json

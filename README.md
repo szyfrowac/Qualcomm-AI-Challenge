@@ -1,26 +1,22 @@
-# Robotic Arm Control System
+# Semantic Manipulator - AN NLP-Driven Robotic Arm
 
-A computer vision-enabled robotic arm control system that performs pick, place, and drop operations using real-time camera data and an interactive Gradio interface.
+Industrial robotic arms are traditionally complex to program, requiring specialized knowledge of coordinate systems, kinematics, and pendant programming. This creates a massive barrier to entry for non-technical users who want to utilize robotics for dynamic tasks like sorting, organization, or lab automation. 
+The Semantic Manipulator" is an Embodied AI Agent that bridges the gap between human language and physical actuation. By integrating a Large Language Model (LLM) with the Arduino UNO Q kit, this project allows users to control a 4-DOF robotic arm using natural language commands (e.g., "Pick up the red block and move it to the right"). 
 
-## Overview
+In this application, we have implemented a robust system to detect and segment coloured Jenga blocks, following which, a user can enter Natural Language prompts to control a Robotic Arm to pick up a block, gently place a block, and immediately drop a block. 
+ 
+The system utilizes computer vision for detection and colour segmentation of Jenga blocks. It translates unstructured text entered by the user into structured JSON protocols, which the Arduino Uno Q parses to orchestrate a safety-critical Finite State Machine (FSM). 
 
-This project integrates a robotic arm with a RealSense context camera to enable automated object manipulation. The system processes visual input to identify objects and execute precise pick, place, and drop operations based on user commands through a Gradio web interface.
 
-## Features
-
-- **Computer Vision Integration**: Real-time object detection using RealSense camera
-- **Automated Operations**: Pick, place, and drop functionality
-- **User-Friendly Interface**: Interactive Gradio-based control panel
-- **Object Detection**: Jenga block detection and tracking
-- **Network Control**: WiFi-based robot arm control (roarm2)
+## WATCH THE DEMONSTRATION VIDEO HERE : https://youtu.be/FhsI4L-pOcw
 
 ## Prerequisites
 
+- Arduino UNO Q (Main Controller): The central brain responsible for perception, parsing logic, state management, and safety validation. 
 - Python 3.x
-- Logitech Webcam provided with the kit or RealSense camera (Intel RealSense D400 series recommended) 
-- RoArm-M2 robotic arm
-- Internet connection (required for first-time setup)
-- WiFi capability for robot connection
+- Logitech Webcam provided with the kit or RealSense camera (Intel RealSense D400 series recommended) : The primary vision sensor used for color segmentation and ArUco marker pose estimation. 
+- RoArm-M2: A 4-DOF Robotic Arm (ESP32-based) handling the Inverse Kinematics (IK) and servo actuation.
+
 
 ## Installation
 
@@ -46,7 +42,7 @@ pip install -r requirements.txt
 
 ### 4. Configure RealSense Libraries
 
-Copy the RealSense libraries to your virtual environment:
+Copy the RealSense libraries to your virtual environment (this is only if the camera being used is an Intel Realsense. If you are using a webcam, you may ignore this):
 
 ```bash
 cp librealsense qualcomm/lib/python/site-packages/
@@ -59,6 +55,8 @@ cp pyrealsense qualcomm/lib/python/site-packages/
 cd qualcomm/lib/python/site-packages/
 mv librealsense librealsense2.so.2.57
 ```
+
+**Another Note** : If you do not have a Realsense camera and wish to use a webcam, you may change the code inside of detect_jenga.py accordingly.  
 
 ## Usage
 
@@ -179,12 +177,10 @@ For questions or support, please open an issue on the [GitHub repository](https:
 ## Future Enhancements
 
 - [ ] Multi-object detection and tracking
-- [ ] Autonomous path planning
 - [ ] Voice command integration
 - [ ] Mobile app control
 - [ ] Advanced gripper control for various object shapes
 - [ ] Real-time performance analytics
-- [ ] Video recording and playback of operations
 
 ---
 

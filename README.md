@@ -150,8 +150,7 @@ Qualcomm-AI-Challenge/
 
 - **Robot**: RoArm-M2 robotic arm
 - **Camera**: Intel RealSense D400 series
-- **Computer**: 
-  - Minimum 4GB RAM
+- **Arduino UNO Q**:
   - USB 3.0 port
   - WiFi capability
   - Python 3.7 or higher

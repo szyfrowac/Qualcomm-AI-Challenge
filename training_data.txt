@@ -1,0 +1,49 @@
+__label__pick_red pick the red block
+__label__pick_red grab the red object
+__label__pick_red take the red one
+__label__pick_red pick up red
+__label__pick_red get the red item
+__label__pick_red hold the red block
+__label__pick_red grasp red object
+__label__pick_red select the red one
+__label__pick_blue pick the blue block
+__label__pick_blue grab the blue object
+__label__pick_blue take the blue one
+__label__pick_blue pick up blue
+__label__pick_blue get the blue item
+__label__pick_blue hold the blue block
+__label__pick_blue grasp blue object
+__label__pick_green pick the green block
+__label__pick_green grab the green object
+__label__pick_green take the green one
+__label__pick_green pick up green
+__label__pick_green get the green item
+__label__pick_green hold green
+__label__pick_yellow pick the yellow block
+__label__pick_yellow grab the yellow object
+__label__pick_yellow take the yellow one
+__label__pick_yellow pick up yellow
+__label__pick_yellow get yellow
+__label__place place the object
+__label__place put it down
+__label__place place it here
+__label__place put the block down
+__label__place position the object
+__label__place set it down
+__label__place place on the table
+__label__place put it on the surface
+__label__place position it here
+__label__place set the object down
+__label__place place this
+__label__place put this down
+__label__drop drop it
+__label__drop drop the object
+__label__drop let go
+__label__drop release it
+__label__drop drop the block
+__label__drop let it go
+__label__drop release the object
+__label__drop drop that
+__label__drop let go of it
+__label__drop release
+__label__drop drop the item
